@@ -2,7 +2,8 @@
  * GradeVault - a terminal-based student grade management system.
  *
  * Enter student names and per-subject marks, GradeVault computes averages,
- * assigns letter grades, and flags pass/fail.
+ * assigns letter grades, flags pass/fail, and now persists everything to
+ * a data file so records survive across sessions.
  *
  * Build:   gcc gradevault.c -o gradevault -Wall
  * Run:     ./gradevault
@@ -18,6 +19,8 @@
 #define MAX_NAME_LEN      50
 #define MAX_SUBJECT_LEN   30
 #define LINE_LEN          1024
+
+#define DATA_FILE         "gradevault.dat"
 
 #define PASS_THRESHOLD    50.0   /* overall average needed to pass       */
 #define BORDERLINE_FLOOR  40.0   /* below this and above FAIL is border. */
@@ -105,7 +108,84 @@ static void print_help(void) {
     printf("  add \"Name\" Mark [Mark ...]                    e.g. add \"Akshat\" 88 76 91 83\n");
     printf("  view all                                       list every student and their grade\n");
     printf("  help                                            show this message\n");
-    printf("  exit | quit                                     quit\n");
+    printf("  exit | quit                                     save and quit\n");
+}
+
+/* ---------------------------------------------------------------------
+ * Persistence (fopen / fprintf / fscanf)
+ *
+ * Record format, one line per student:
+ *   name|num_subjects|subj1:mark1,subj2:mark2,...
+ * ------------------------------------------------------------------- */
+
+static void load_students(void) {
+    FILE *fp = fopen(DATA_FILE, "r");
+    if (!fp) return; /* no prior data yet - that's fine */
+
+    char line[LINE_LEN];
+    while (fgets(line, sizeof(line), fp) && student_count < MAX_STUDENTS) {
+        trim_newline(line);
+        if (line[0] == '\0') continue;
+
+        Student *s = &students[student_count];
+        memset(s, 0, sizeof(Student));
+
+        char *name_end = strchr(line, '|');
+        if (!name_end) continue;
+        size_t name_len = (size_t)(name_end - line);
+        if (name_len >= MAX_NAME_LEN) name_len = MAX_NAME_LEN - 1;
+        strncpy(s->name, line, name_len);
+        s->name[name_len] = '\0';
+
+        char *rest = name_end + 1;
+        int n = 0;
+        char subj_field[LINE_LEN];
+        if (sscanf(rest, "%d|%[^\n]", &n, subj_field) < 1) continue;
+        if (n < 0) n = 0;
+        if (n > MAX_SUBJECTS) n = MAX_SUBJECTS;
+        s->num_subjects = n;
+
+        char *second_bar = strchr(rest, '|');
+        if (second_bar && n > 0) {
+            char *cursor = second_bar + 1;
+            char *token = strtok(cursor, ",");
+            int idx = 0;
+            while (token && idx < n) {
+                char subj[MAX_SUBJECT_LEN];
+                double mark;
+                if (sscanf(token, "%29[^:]:%lf", subj, &mark) == 2) {
+                    strncpy(s->subject_names[idx], subj, MAX_SUBJECT_LEN - 1);
+                    s->marks[idx] = mark;
+                    idx++;
+                }
+                token = strtok(NULL, ",");
+            }
+            s->num_subjects = idx;
+        } else {
+            s->num_subjects = 0;
+        }
+
+        student_count++;
+    }
+    fclose(fp);
+}
+
+static void save_students(void) {
+    FILE *fp = fopen(DATA_FILE, "w");
+    if (!fp) {
+        printf(C_RED "Error: could not save records to %s\n" C_RESET, DATA_FILE);
+        return;
+    }
+    for (int i = 0; i < student_count; i++) {
+        Student *s = &students[i];
+        fprintf(fp, "%s|%d|", s->name, s->num_subjects);
+        for (int j = 0; j < s->num_subjects; j++) {
+            fprintf(fp, "%s:%.2f", s->subject_names[j], s->marks[j]);
+            if (j < s->num_subjects - 1) fprintf(fp, ",");
+        }
+        fprintf(fp, "\n");
+    }
+    fclose(fp);
 }
 
 /* Parses:  "Name" tok1 tok2 ...   where tok is either Subject=Mark or a bare number */
@@ -215,8 +295,10 @@ static void cmd_view_all(void) {
  * --------------------------------------------------------------------- */
 
 int main(void) {
+    load_students();
     printf(C_BOLD "GradeVault" C_RESET " - student grade management\n");
-    printf("Type 'help' for commands.\n");
+    printf("Type 'help' for commands. %d student record(s) loaded from %s.\n",
+           student_count, DATA_FILE);
 
     char line[LINE_LEN];
     for (;;) {
@@ -245,6 +327,7 @@ int main(void) {
         }
     }
 
-    printf("Goodbye.\n");
+    save_students();
+    printf("Saved %d student record(s) to %s. Goodbye.\n", student_count, DATA_FILE);
     return 0;
 }
