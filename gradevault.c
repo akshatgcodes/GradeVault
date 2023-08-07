@@ -21,9 +21,11 @@
 #define LINE_LEN          1024
 
 #define DATA_FILE         "gradevault.dat"
+#define HISTORY_FILE      "gradevault_history.dat"
 
 #define PASS_THRESHOLD    50.0   /* overall average needed to pass       */
 #define BORDERLINE_FLOOR  40.0   /* below this and above FAIL is border. */
+#define CLASS_WARN_LEVEL  60.0   /* class average below this is a warning*/
 
 /* ---- ANSI colors ---------------------------------------------------- */
 #define C_RESET   "\033[0m"
@@ -107,8 +109,126 @@ static void print_help(void) {
     printf("  add \"Name\" Subject=Mark [Subject=Mark ...]   e.g. add \"Akshat\" Math=88 Physics=76\n");
     printf("  add \"Name\" Mark [Mark ...]                    e.g. add \"Akshat\" 88 76 91 83\n");
     printf("  view all                                       list every student and their grade\n");
+    printf("  summary                                        brutally honest class report card\n");
     printf("  help                                            show this message\n");
     printf("  exit | quit                                     save and quit\n");
+}
+
+/* previous class average, -1.0 means "no history yet" */
+static double load_history(void) {
+    FILE *fp = fopen(HISTORY_FILE, "r");
+    if (!fp) return -1.0;
+    double prev = -1.0;
+    if (fscanf(fp, "%lf", &prev) != 1) prev = -1.0;
+    fclose(fp);
+    return prev;
+}
+
+static void save_history(double avg) {
+    FILE *fp = fopen(HISTORY_FILE, "w");
+    if (!fp) return;
+    fprintf(fp, "%.4f\n", avg);
+    fclose(fp);
+}
+
+/* Computes and prints the "brutally honest" summary: class average vs.
+ * threshold, pass/borderline/fail counts, weakest/strongest subject, and
+ * a comparison against the last time "summary" was run. */
+static void run_summary(void) {
+    if (student_count == 0) {
+        printf(C_YELLOW "No students on record yet - nothing to summarize.\n" C_RESET);
+        return;
+    }
+
+    double class_total = 0.0;
+    int fail_count = 0, borderline_count = 0, pass_count = 0;
+
+    char subj_names[MAX_SUBJECTS * MAX_STUDENTS][MAX_SUBJECT_LEN];
+    double subj_totals[MAX_SUBJECTS * MAX_STUDENTS];
+    int subj_counts[MAX_SUBJECTS * MAX_STUDENTS];
+    int subj_unique = 0;
+
+    for (int i = 0; i < student_count; i++) {
+        Student *s = &students[i];
+        double avg = student_average(s);
+        class_total += avg;
+        int status = student_status(avg);
+        if (status == 0) fail_count++;
+        else if (status == 1) borderline_count++;
+        else pass_count++;
+
+        for (int j = 0; j < s->num_subjects; j++) {
+            int found = -1;
+            for (int k = 0; k < subj_unique; k++) {
+                if (strcmp(subj_names[k], s->subject_names[j]) == 0) { found = k; break; }
+            }
+            if (found == -1) {
+                found = subj_unique++;
+                strncpy(subj_names[found], s->subject_names[j], MAX_SUBJECT_LEN - 1);
+                subj_names[found][MAX_SUBJECT_LEN - 1] = '\0';
+                subj_totals[found] = 0.0;
+                subj_counts[found] = 0;
+            }
+            subj_totals[found] += s->marks[j];
+            subj_counts[found]++;
+        }
+    }
+
+    double class_avg = class_total / student_count;
+
+    int weakest_idx = -1;
+    double weakest_avg = 1e18;
+    int strongest_idx = -1;
+    double strongest_avg = -1e18;
+    for (int k = 0; k < subj_unique; k++) {
+        double subj_avg = subj_totals[k] / subj_counts[k];
+        if (subj_avg < weakest_avg) { weakest_avg = subj_avg; weakest_idx = k; }
+        if (subj_avg > strongest_avg) { strongest_avg = subj_avg; strongest_idx = k; }
+    }
+
+    double prev_avg = load_history();
+
+    const char *warn_color = (class_avg < CLASS_WARN_LEVEL) ? C_RED : C_GREEN;
+    printf("%sClass Average: %.1f", warn_color, class_avg);
+    if (class_avg < CLASS_WARN_LEVEL) printf(" - Below passing threshold");
+    else printf(" - Class is passing overall");
+    printf("%s\n", C_RESET);
+
+    printf("%s%d students failing%s | %s%d borderline%s | %s%d passing%s\n",
+           C_RED, fail_count, C_RESET,
+           C_YELLOW, borderline_count, C_RESET,
+           C_GREEN, pass_count, C_RESET);
+
+    if (weakest_idx != -1) {
+        printf("%sWeakest subject: %s (avg %.1f)%s\n",
+               C_RED, subj_names[weakest_idx], weakest_avg, C_RESET);
+        printf("%sStrongest subject: %s (avg %.1f)%s\n",
+               C_GREEN, subj_names[strongest_idx], strongest_avg, C_RESET);
+    }
+
+    if (prev_avg >= 0.0) {
+        double diff = class_avg - prev_avg;
+        if (diff < -0.05) {
+            printf("%sAverage dropped %.1f points from last batch (%.1f -> %.1f)%s\n",
+                   C_RED, -diff, prev_avg, class_avg, C_RESET);
+        } else if (diff > 0.05) {
+            printf("%sAverage improved %.1f points from last batch (%.1f -> %.1f)%s\n",
+                   C_GREEN, diff, prev_avg, class_avg, C_RESET);
+        } else {
+            printf("%sAverage is flat compared to last batch (%.1f)%s\n", C_YELLOW, prev_avg, C_RESET);
+        }
+    } else {
+        printf(C_CYAN "(No previous batch on record yet - this is the baseline.)\n" C_RESET);
+    }
+
+    const char *verdict;
+    if (fail_count > pass_count) verdict = "Most of this class is failing. This batch needs serious intervention.";
+    else if (fail_count > 0) verdict = "A few students are sinking. Do not ignore them.";
+    else if (borderline_count > 0) verdict = "Nobody is failing, but several students are one bad test from it.";
+    else verdict = "Solid batch - everyone is clearing the bar.";
+    printf("%s%s%s\n", C_BOLD, verdict, C_RESET);
+
+    save_history(class_avg);
 }
 
 /* ---------------------------------------------------------------------
@@ -318,6 +438,8 @@ int main(void) {
             cmd_add(cmd + 4);
         } else if (strcmp(cmd, "view all") == 0 || strcmp(cmd, "view") == 0) {
             cmd_view_all();
+        } else if (strcmp(cmd, "summary") == 0) {
+            run_summary();
         } else if (strcmp(cmd, "help") == 0) {
             print_help();
         } else if (strcmp(cmd, "exit") == 0 || strcmp(cmd, "quit") == 0) {
