@@ -2,8 +2,10 @@
  * GradeVault - a terminal-based student grade management system.
  *
  * Enter student names and per-subject marks, GradeVault computes averages,
- * assigns letter grades, flags pass/fail, and now persists everything to
- * a data file so records survive across sessions.
+ * assigns letter grades, flags pass/fail, colorizes the output with ANSI
+ * escape codes, and persists everything to a data file so records survive
+ * across sessions. The "summary" command generates a blunt, human-readable
+ * report card for the whole class instead of a spreadsheet dump.
  *
  * Build:   gcc gradevault.c -o gradevault -Wall
  * Run:     ./gradevault
@@ -101,137 +103,6 @@ static void trim_newline(char *s) {
 }
 
 /* ---------------------------------------------------------------------
- * Commands
- * --------------------------------------------------------------------- */
-
-static void print_help(void) {
-    printf("Available commands:\n");
-    printf("  add \"Name\" Subject=Mark [Subject=Mark ...]   e.g. add \"Akshat\" Math=88 Physics=76\n");
-    printf("  add \"Name\" Mark [Mark ...]                    e.g. add \"Akshat\" 88 76 91 83\n");
-    printf("  view all                                       list every student and their grade\n");
-    printf("  summary                                        brutally honest class report card\n");
-    printf("  help                                            show this message\n");
-    printf("  exit | quit                                     save and quit\n");
-}
-
-/* previous class average, -1.0 means "no history yet" */
-static double load_history(void) {
-    FILE *fp = fopen(HISTORY_FILE, "r");
-    if (!fp) return -1.0;
-    double prev = -1.0;
-    if (fscanf(fp, "%lf", &prev) != 1) prev = -1.0;
-    fclose(fp);
-    return prev;
-}
-
-static void save_history(double avg) {
-    FILE *fp = fopen(HISTORY_FILE, "w");
-    if (!fp) return;
-    fprintf(fp, "%.4f\n", avg);
-    fclose(fp);
-}
-
-/* Computes and prints the "brutally honest" summary: class average vs.
- * threshold, pass/borderline/fail counts, weakest/strongest subject, and
- * a comparison against the last time "summary" was run. */
-static void run_summary(void) {
-    if (student_count == 0) {
-        printf(C_YELLOW "No students on record yet - nothing to summarize.\n" C_RESET);
-        return;
-    }
-
-    double class_total = 0.0;
-    int fail_count = 0, borderline_count = 0, pass_count = 0;
-
-    char subj_names[MAX_SUBJECTS * MAX_STUDENTS][MAX_SUBJECT_LEN];
-    double subj_totals[MAX_SUBJECTS * MAX_STUDENTS];
-    int subj_counts[MAX_SUBJECTS * MAX_STUDENTS];
-    int subj_unique = 0;
-
-    for (int i = 0; i < student_count; i++) {
-        Student *s = &students[i];
-        double avg = student_average(s);
-        class_total += avg;
-        int status = student_status(avg);
-        if (status == 0) fail_count++;
-        else if (status == 1) borderline_count++;
-        else pass_count++;
-
-        for (int j = 0; j < s->num_subjects; j++) {
-            int found = -1;
-            for (int k = 0; k < subj_unique; k++) {
-                if (strcmp(subj_names[k], s->subject_names[j]) == 0) { found = k; break; }
-            }
-            if (found == -1) {
-                found = subj_unique++;
-                strncpy(subj_names[found], s->subject_names[j], MAX_SUBJECT_LEN - 1);
-                subj_names[found][MAX_SUBJECT_LEN - 1] = '\0';
-                subj_totals[found] = 0.0;
-                subj_counts[found] = 0;
-            }
-            subj_totals[found] += s->marks[j];
-            subj_counts[found]++;
-        }
-    }
-
-    double class_avg = class_total / student_count;
-
-    int weakest_idx = -1;
-    double weakest_avg = 1e18;
-    int strongest_idx = -1;
-    double strongest_avg = -1e18;
-    for (int k = 0; k < subj_unique; k++) {
-        double subj_avg = subj_totals[k] / subj_counts[k];
-        if (subj_avg < weakest_avg) { weakest_avg = subj_avg; weakest_idx = k; }
-        if (subj_avg > strongest_avg) { strongest_avg = subj_avg; strongest_idx = k; }
-    }
-
-    double prev_avg = load_history();
-
-    const char *warn_color = (class_avg < CLASS_WARN_LEVEL) ? C_RED : C_GREEN;
-    printf("%sClass Average: %.1f", warn_color, class_avg);
-    if (class_avg < CLASS_WARN_LEVEL) printf(" - Below passing threshold");
-    else printf(" - Class is passing overall");
-    printf("%s\n", C_RESET);
-
-    printf("%s%d students failing%s | %s%d borderline%s | %s%d passing%s\n",
-           C_RED, fail_count, C_RESET,
-           C_YELLOW, borderline_count, C_RESET,
-           C_GREEN, pass_count, C_RESET);
-
-    if (weakest_idx != -1) {
-        printf("%sWeakest subject: %s (avg %.1f)%s\n",
-               C_RED, subj_names[weakest_idx], weakest_avg, C_RESET);
-        printf("%sStrongest subject: %s (avg %.1f)%s\n",
-               C_GREEN, subj_names[strongest_idx], strongest_avg, C_RESET);
-    }
-
-    if (prev_avg >= 0.0) {
-        double diff = class_avg - prev_avg;
-        if (diff < -0.05) {
-            printf("%sAverage dropped %.1f points from last batch (%.1f -> %.1f)%s\n",
-                   C_RED, -diff, prev_avg, class_avg, C_RESET);
-        } else if (diff > 0.05) {
-            printf("%sAverage improved %.1f points from last batch (%.1f -> %.1f)%s\n",
-                   C_GREEN, diff, prev_avg, class_avg, C_RESET);
-        } else {
-            printf("%sAverage is flat compared to last batch (%.1f)%s\n", C_YELLOW, prev_avg, C_RESET);
-        }
-    } else {
-        printf(C_CYAN "(No previous batch on record yet - this is the baseline.)\n" C_RESET);
-    }
-
-    const char *verdict;
-    if (fail_count > pass_count) verdict = "Most of this class is failing. This batch needs serious intervention.";
-    else if (fail_count > 0) verdict = "A few students are sinking. Do not ignore them.";
-    else if (borderline_count > 0) verdict = "Nobody is failing, but several students are one bad test from it.";
-    else verdict = "Solid batch - everyone is clearing the bar.";
-    printf("%s%s%s\n", C_BOLD, verdict, C_RESET);
-
-    save_history(class_avg);
-}
-
-/* ---------------------------------------------------------------------
  * Persistence (fopen / fprintf / fscanf)
  *
  * Record format, one line per student:
@@ -265,6 +136,7 @@ static void load_students(void) {
         if (n > MAX_SUBJECTS) n = MAX_SUBJECTS;
         s->num_subjects = n;
 
+        /* find the field after the second '|' to parse subject:mark pairs */
         char *second_bar = strchr(rest, '|');
         if (second_bar && n > 0) {
             char *cursor = second_bar + 1;
@@ -306,6 +178,38 @@ static void save_students(void) {
         fprintf(fp, "\n");
     }
     fclose(fp);
+}
+
+/* previous class average, -1.0 means "no history yet" */
+static double load_history(void) {
+    FILE *fp = fopen(HISTORY_FILE, "r");
+    if (!fp) return -1.0;
+    double prev = -1.0;
+    if (fscanf(fp, "%lf", &prev) != 1) prev = -1.0;
+    fclose(fp);
+    return prev;
+}
+
+static void save_history(double avg) {
+    FILE *fp = fopen(HISTORY_FILE, "w");
+    if (!fp) return;
+    fprintf(fp, "%.4f\n", avg);
+    fclose(fp);
+}
+
+/* ---------------------------------------------------------------------
+ * Commands
+ * --------------------------------------------------------------------- */
+
+static void print_help(void) {
+    printf("Available commands:\n");
+    printf("  add \"Name\" Subject=Mark [Subject=Mark ...]   e.g. add \"Akshat\" Math=88 Physics=76\n");
+    printf("  add \"Name\" Mark [Mark ...]                    e.g. add \"Akshat\" 88 76 91 83\n");
+    printf("  view all                                       list every student and their grade\n");
+    printf("  summary                                        brutally honest class report card\n");
+    printf("  export <file>                                  write the roster + summary to a file\n");
+    printf("  help                                            show this message\n");
+    printf("  exit | quit                                     save and quit\n");
 }
 
 /* Parses:  "Name" tok1 tok2 ...   where tok is either Subject=Mark or a bare number */
@@ -383,20 +287,30 @@ static void cmd_add(char *args) {
            status_color(status), status_label(status), C_RESET);
 }
 
-static void print_student_row(const Student *s) {
+static void print_student_row(FILE *out, const Student *s, int use_color) {
     double avg = student_average(s);
     char grade = letter_grade(avg);
     int status = student_status(avg);
 
-    printf("%s%-15s%s avg=%-6.1f grade=%-2c [%s%-10s%s] marks: ",
-           C_BOLD, s->name, C_RESET, avg, grade,
-           status_color(status), status_label(status), C_RESET);
+    if (use_color) {
+        printf("%s%-15s%s avg=%-6.1f grade=%-2c [%s%-10s%s] marks: ",
+               C_BOLD, s->name, C_RESET, avg, grade,
+               status_color(status), status_label(status), C_RESET);
+    } else {
+        fprintf(out, "%-15s avg=%-6.1f grade=%-2c [%-10s] marks: ",
+                s->name, avg, grade, status_label(status));
+    }
 
     for (int i = 0; i < s->num_subjects; i++) {
-        printf("%s=%.0f", s->subject_names[i], s->marks[i]);
-        if (i < s->num_subjects - 1) printf(", ");
+        if (use_color) {
+            printf("%s=%.0f", s->subject_names[i], s->marks[i]);
+            if (i < s->num_subjects - 1) printf(", ");
+        } else {
+            fprintf(out, "%s=%.0f", s->subject_names[i], s->marks[i]);
+            if (i < s->num_subjects - 1) fprintf(out, ", ");
+        }
     }
-    printf("\n");
+    if (use_color) printf("\n"); else fprintf(out, "\n");
 }
 
 static void cmd_view_all(void) {
@@ -406,8 +320,175 @@ static void cmd_view_all(void) {
     }
     printf(C_CYAN "%d student(s) on record:\n" C_RESET, student_count);
     for (int i = 0; i < student_count; i++) {
-        print_student_row(&students[i]);
+        print_student_row(NULL, &students[i], 1);
     }
+}
+
+/* Computes and prints/writes the "brutally honest" summary.
+ * If out is NULL, prints to stdout with color. Otherwise writes plain
+ * text to out (used by export). Updates history file as a side effect
+ * only when called from the interactive "summary" command (update_history=1).
+ */
+static void run_summary(FILE *out, int use_color, int update_history) {
+    if (student_count == 0) {
+        if (use_color) printf(C_YELLOW "No students on record yet - nothing to summarize.\n" C_RESET);
+        else fprintf(out, "No students on record yet - nothing to summarize.\n");
+        return;
+    }
+
+    double class_total = 0.0;
+    int fail_count = 0, borderline_count = 0, pass_count = 0;
+
+    /* per-subject totals, tracked by first-seen subject name */
+    char subj_names[MAX_SUBJECTS * MAX_STUDENTS][MAX_SUBJECT_LEN];
+    double subj_totals[MAX_SUBJECTS * MAX_STUDENTS];
+    int subj_counts[MAX_SUBJECTS * MAX_STUDENTS];
+    int subj_unique = 0;
+
+    for (int i = 0; i < student_count; i++) {
+        Student *s = &students[i];
+        double avg = student_average(s);
+        class_total += avg;
+        int status = student_status(avg);
+        if (status == 0) fail_count++;
+        else if (status == 1) borderline_count++;
+        else pass_count++;
+
+        for (int j = 0; j < s->num_subjects; j++) {
+            int found = -1;
+            for (int k = 0; k < subj_unique; k++) {
+                if (strcmp(subj_names[k], s->subject_names[j]) == 0) { found = k; break; }
+            }
+            if (found == -1) {
+                found = subj_unique++;
+                strncpy(subj_names[found], s->subject_names[j], MAX_SUBJECT_LEN - 1);
+                subj_names[found][MAX_SUBJECT_LEN - 1] = '\0';
+                subj_totals[found] = 0.0;
+                subj_counts[found] = 0;
+            }
+            subj_totals[found] += s->marks[j];
+            subj_counts[found]++;
+        }
+    }
+
+    double class_avg = class_total / student_count;
+
+    int weakest_idx = -1;
+    double weakest_avg = 1e18;
+    int strongest_idx = -1;
+    double strongest_avg = -1e18;
+    for (int k = 0; k < subj_unique; k++) {
+        double subj_avg = subj_totals[k] / subj_counts[k];
+        if (subj_avg < weakest_avg) { weakest_avg = subj_avg; weakest_idx = k; }
+        if (subj_avg > strongest_avg) { strongest_avg = subj_avg; strongest_idx = k; }
+    }
+
+    double prev_avg = update_history ? load_history() : -1.0;
+
+    /* ---- header line: class average vs. passing threshold ---- */
+    if (use_color) {
+        const char *warn_color = (class_avg < CLASS_WARN_LEVEL) ? C_RED : C_GREEN;
+        const char *icon = (class_avg < CLASS_WARN_LEVEL) ? "\xE2\x9A\xA0\xEF\xB8\x8F " : "\xE2\x9C\x85 ";
+        printf("%s%sClass Average: %.1f", warn_color, icon, class_avg);
+        if (class_avg < CLASS_WARN_LEVEL) printf(" - Below passing threshold");
+        else printf(" - Class is passing overall");
+        printf("%s\n", C_RESET);
+    } else {
+        fprintf(out, "Class Average: %.1f", class_avg);
+        fprintf(out, class_avg < CLASS_WARN_LEVEL ? " - Below passing threshold\n" : " - Class is passing overall\n");
+    }
+
+    /* ---- pass/fail/borderline breakdown ---- */
+    if (use_color) {
+        printf("%s\xF0\x9F\x94\xB4 %d students failing%s | %s\xF0\x9F\x9F\xA1 %d borderline%s | %s\xF0\x9F\x9F\xA2 %d passing%s\n",
+               C_RED, fail_count, C_RESET,
+               C_YELLOW, borderline_count, C_RESET,
+               C_GREEN, pass_count, C_RESET);
+    } else {
+        fprintf(out, "%d students failing | %d borderline | %d passing\n",
+                fail_count, borderline_count, pass_count);
+    }
+
+    /* ---- weakest / strongest subject ---- */
+    if (weakest_idx != -1) {
+        if (use_color) {
+            printf("%s\xF0\x9F\x93\x89 Weakest subject: %s (avg %.1f)%s\n",
+                   C_RED, subj_names[weakest_idx], weakest_avg, C_RESET);
+            printf("%s\xF0\x9F\x93\x88 Strongest subject: %s (avg %.1f)%s\n",
+                   C_GREEN, subj_names[strongest_idx], strongest_avg, C_RESET);
+        } else {
+            fprintf(out, "Weakest subject: %s (avg %.1f)\n", subj_names[weakest_idx], weakest_avg);
+            fprintf(out, "Strongest subject: %s (avg %.1f)\n", subj_names[strongest_idx], strongest_avg);
+        }
+    }
+
+    /* ---- comparison to last batch ---- */
+    if (prev_avg >= 0.0) {
+        double diff = class_avg - prev_avg;
+        if (use_color) {
+            if (diff < -0.05) {
+                printf("%s\xF0\x9F\x93\x89 Average dropped %.1f points from last batch (%.1f -> %.1f)%s\n",
+                       C_RED, -diff, prev_avg, class_avg, C_RESET);
+            } else if (diff > 0.05) {
+                printf("%s\xF0\x9F\x93\x88 Average improved %.1f points from last batch (%.1f -> %.1f)%s\n",
+                       C_GREEN, diff, prev_avg, class_avg, C_RESET);
+            } else {
+                printf("%s\xE2\x9E\x96 Average is flat compared to last batch (%.1f)%s\n", C_YELLOW, prev_avg, C_RESET);
+            }
+        } else {
+            if (diff < -0.05)
+                fprintf(out, "Average dropped %.1f points from last batch (%.1f -> %.1f)\n", -diff, prev_avg, class_avg);
+            else if (diff > 0.05)
+                fprintf(out, "Average improved %.1f points from last batch (%.1f -> %.1f)\n", diff, prev_avg, class_avg);
+            else
+                fprintf(out, "Average is flat compared to last batch (%.1f)\n", prev_avg);
+        }
+    } else {
+        if (use_color) printf(C_CYAN "(No previous batch on record yet - this is the baseline.)\n" C_RESET);
+        else fprintf(out, "(No previous batch on record yet - this is the baseline.)\n");
+    }
+
+    /* ---- blunt closing verdict ---- */
+    const char *verdict;
+    if (fail_count > pass_count) verdict = "Most of this class is failing. This batch needs serious intervention.";
+    else if (fail_count > 0) verdict = "A few students are sinking. Do not ignore them.";
+    else if (borderline_count > 0) verdict = "Nobody is failing, but several students are one bad test from it.";
+    else verdict = "Solid batch - everyone is clearing the bar.";
+
+    if (use_color) printf("%s%s%s\n", C_BOLD, verdict, C_RESET);
+    else fprintf(out, "%s\n", verdict);
+
+    if (update_history) save_history(class_avg);
+}
+
+static void cmd_export(char *filename) {
+    while (*filename == ' ') filename++;
+    if (*filename == '\0') {
+        printf(C_RED "Error: usage: export <filename>\n" C_RESET);
+        return;
+    }
+    char clean[256];
+    strncpy(clean, filename, sizeof(clean) - 1);
+    clean[sizeof(clean) - 1] = '\0';
+    trim_newline(clean);
+
+    FILE *fp = fopen(clean, "w");
+    if (!fp) {
+        printf(C_RED "Error: could not open %s for writing\n" C_RESET, clean);
+        return;
+    }
+
+    fprintf(fp, "GradeVault Report\n");
+    fprintf(fp, "==================\n\n");
+    fprintf(fp, "Roster (%d student(s)):\n", student_count);
+    for (int i = 0; i < student_count; i++) {
+        print_student_row(fp, &students[i], 0);
+    }
+    fprintf(fp, "\nSummary:\n");
+    run_summary(fp, 0, 0); /* export does not overwrite the "last batch" history */
+
+    fclose(fp);
+    printf(C_GREEN "Exported report to %s\n" C_RESET, clean);
 }
 
 /* ---------------------------------------------------------------------
@@ -439,7 +520,9 @@ int main(void) {
         } else if (strcmp(cmd, "view all") == 0 || strcmp(cmd, "view") == 0) {
             cmd_view_all();
         } else if (strcmp(cmd, "summary") == 0) {
-            run_summary();
+            run_summary(NULL, 1, 1);
+        } else if (strncmp(cmd, "export ", 7) == 0) {
+            cmd_export(cmd + 7);
         } else if (strcmp(cmd, "help") == 0) {
             print_help();
         } else if (strcmp(cmd, "exit") == 0 || strcmp(cmd, "quit") == 0) {
