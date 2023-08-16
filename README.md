@@ -149,3 +149,7 @@ GPLv3 - see [LICENSE](LICENSE) for details.
 ## Testing
 
 Manually tested via the sample commands above; no automated test suite yet.
+
+## Notes
+
+Built as a focused, single-purpose tool - a terminal-based student grade management system, nothing more, nothing less.
