@@ -536,3 +536,5 @@ int main(void) {
     printf("Saved %d student record(s) to %s. Goodbye.\n", student_count, DATA_FILE);
     return 0;
 }
+
+// Built incrementally - see git history for the development progression.
