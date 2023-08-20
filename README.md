@@ -153,3 +153,7 @@ Manually tested via the sample commands above; no automated test suite yet.
 ## Notes
 
 Built as a focused, single-purpose tool - a terminal-based student grade management system, nothing more, nothing less.
+
+## Troubleshooting
+
+If something doesn't run as expected, double-check you're using the dependency versions noted above and running the exact commands from the "Run it" section.
