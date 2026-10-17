@@ -1,177 +1,107 @@
-# GradeVault
+<p align="center">
+  <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24"
+       fill="none" stroke="#4ade80" stroke-width="1.5"
+       stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/>
+    <path d="M22 10v6"/>
+    <path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/>
+  </svg>
+</p>
 
-A terminal-based student grade management system written in C. Enter student
-names and marks, GradeVault calculates averages, assigns letter grades, flags
-pass/fail/borderline status, and saves everything to a file so records
-persist across sessions.
+<h1 align="center">GradeVault</h1>
 
-## X Factor
+<p align="center">
+  <strong>A terminal grade manager in plain C that stores records in a file and writes a brutally honest class report card.</strong>
+</p>
 
-Most grade calculators just calculate and forget. GradeVault auto-generates a
-**brutally honest performance summary** at the end of a session — it reads
-like a report card, not a spreadsheet dump:
+<p align="center">
+  <a href="https://gradevault.akshatgcodes.in">
+    <img src="https://img.shields.io/badge/project_page-4ade80-4ade80?style=flat-square" alt="Project page">
+  </a>
+  <img src="https://img.shields.io/badge/C-A8B9CC?style=flat-square&logo=c&logoColor=black" alt="C">
+  <img src="https://img.shields.io/badge/no_dependencies-111111?style=flat-square" alt="No dependencies">
+  <img src="https://img.shields.io/badge/license-GPL--3.0-4ade80?style=flat-square" alt="License">
+</p>
+
+---
+
+## What is GradeVault?
+
+GradeVault is a command-line tool for teachers and TAs. Type students and marks, and it works out averages, letter grades and pass / borderline / fail status, then keeps everything in a flat file between sessions. Its `summary` command reads like a report card, not a spreadsheet dump: weakest and strongest subject, how many students are sinking, and whether the class average went up or down since the last batch.
+
+> **Project page →** [gradevault.akshatgcodes.in](https://gradevault.akshatgcodes.in)
+> It's a CLI, so it runs on your machine: `gcc -Wall gradevault.c -o gradevault && ./gradevault`
 
 ```
-⚠️ Class Average: 51.9 - Below passing threshold
+> summary
+⚠️  Class Average: 51.9 - Below passing threshold
 🔴 1 students failing | 🟡 1 borderline | 🟢 1 passing
 📉 Weakest subject: Physics (avg 43.0)
 📈 Strongest subject: Chemistry (avg 57.7)
-(No previous batch on record yet - this is the baseline.)
 A few students are sinking. Do not ignore them.
 ```
 
-The summary is a real computed feature, not decorative text:
+---
 
-- **Weakest / strongest subject** is computed by averaging every mark
-  recorded for each subject name across all students and picking the min/max.
-- **Pass / borderline / fail counts** are computed per-student from each
-  student's own average against fixed thresholds.
-- **Trend vs. last batch** is computed by persisting the class average from
-  the last time `summary` was run (in `gradevault_history.dat`) and diffing
-  it against the current run's average, so GradeVault literally tells you
-  "average dropped/improved N points from last batch."
-- The closing verdict line (e.g. *"A few students are sinking. Do not ignore
-  them."*) is chosen from the actual fail/borderline/pass counts, not a
-  static string.
+## What you get
 
-Terminal output is also color-coded with raw ANSI escape codes — green for
-passing, yellow for borderline, red for failing — which is uncommon to see
-done by hand in a plain C project (no ncurses, no external libraries).
+- **Records that persist** — `add`, `view all`, and everything is saved to `gradevault.dat` and reloaded next time.
+- **Grades and status** — A ≥ 90, B ≥ 75, C ≥ 60, D ≥ 40, F below. PASS ≥ 50, BORDERLINE 40–49, FAIL below 40.
+- **Honest summary** — per-subject averages, pass/borderline/fail counts, a trend against the last batch, and a verdict chosen from the real counts.
+- **Colour output** — green, yellow and red status with raw ANSI escape codes, no ncurses.
+- **Export** — write the roster and summary to a text file.
 
-## Key concepts demonstrated
+---
 
-- **C structs** — `Student` holds a name, a variable number of subjects, and
-  a parallel array of per-subject marks.
-- **File I/O** — `fopen`/`fprintf`/`fscanf` persist the roster to
-  `gradevault.dat` (pipe-delimited text) and the last class average to
-  `gradevault_history.dat`, both reloaded on the next run.
-- **ANSI escape codes** — `\033[31m` / `\033[32m` / `\033[33m` / `\033[0m`
-  drive red/green/yellow/reset terminal coloring without any library.
-- **Computed summary statistics** — class average, per-subject averages,
-  pass/borderline/fail tallies, and batch-over-batch trend, all computed at
-  runtime from the in-memory roster.
-- **Data persistence without a database** — a flat text file is the entire
-  storage layer; no SQLite, no external dependencies.
+## Stack
 
-## Commands
+| Layer | Tech |
+|---|---|
+| Language | C (standard library only) |
+| Storage | Pipe-delimited text files (`gradevault.dat`, `gradevault_history.dat`) |
+| Output | ANSI escape codes |
+| Project page | Next.js 16 on Vercel · GoDaddy DNS |
 
-```
-add "Name" Subject=Mark [Subject=Mark ...]   e.g. add "Akshat" Math=88 Physics=76 Chemistry=91 English=83
-add "Name" Mark [Mark ...]                    e.g. add "Akshat" 88 76 91 83
-                                               (bare marks are auto-labeled Math, Physics,
-                                                Chemistry, English, Biology, CS, in that order)
-view all                                      list every student with average, grade, and marks
-summary                                       print the brutally honest class report card
-export <file>                                 write the roster + summary to a plain-text file
-help                                          show the command list
-exit | quit                                   save the roster and quit
-```
+---
 
-Grading scale: A ≥ 90, B ≥ 75, C ≥ 60, D ≥ 40, F < 40.
-Status: PASS ≥ 50, BORDERLINE 40–49, FAIL < 40.
-Class average below 60 is flagged as a warning.
+## Engineering Decisions
 
-## Sample session
+**Why a flat text file instead of SQLite?**
+The tool stays one `.c` file with zero dependencies. A pipe-delimited roster is enough for a class and is easy to read or fix by hand.
 
-```
-$ ./gradevault
-GradeVault - student grade management
-Type 'help' for commands. 0 student record(s) loaded from gradevault.dat.
-> add "Akshat" 88 76 91 83
-Added Akshat - average 84.5, grade B [PASS]
-> view all
-1 student(s) on record:
-Akshat          avg=84.5   grade=B  [PASS      ] marks: Math=88, Physics=76, Chemistry=91, English=83
-> summary
-⚠️  Class Average: 84.5 - Class is passing overall
-🔴 0 students failing | 🟡 0 borderline | 🟢 1 passing
-📉 Weakest subject: Physics (avg 76.0)
-📈 Strongest subject: Chemistry (avg 91.0)
-(No previous batch on record yet - this is the baseline.)
-Solid batch - everyone is clearing the bar.
-> export report.txt
-Exported report to report.txt
-> exit
-Saved 1 student record(s) to gradevault.dat. Goodbye.
-```
+**Why store the last class average separately?**
+`gradevault_history.dat` keeps the average from the previous `summary`, so the next run can say "dropped / improved N points from last batch" without keeping full history.
 
-Relaunching `./gradevault` reloads `gradevault.dat`, so the roster and the
-"last batch" average both carry over into the next session.
+**Why fixed-size arrays?**
+200 students × 10 subjects covers a class, keeps memory static and avoids `malloc` bookkeeping. Every string copy is length-bounded.
 
-## Build & run
+**What would you do differently in v2?**
+Quote-aware CSV import and export, so a roster can come straight from a spreadsheet.
 
-Platform: Linux/macOS (GCC), Windows (MinGW).
+---
 
-```sh
-gcc gradevault.c -o gradevault -Wall
-./gradevault
-```
+## Docs
 
-On Windows with MinGW:
+| Document | Description |
+|---|---|
+| [PRD](docs/PRD.md) | Product requirements — goals, user stories, non-goals |
+| [Architecture](docs/ARCHITECTURE.md) | Program structure, file formats, data flow |
+| [Decisions](docs/DECISIONS.md) | Every major technical decision and why |
+| [Setup](docs/SETUP.md) | Build, run and every command |
+| [Deploy](docs/DEPLOY.md) | How the project page is deployed |
+| [Contributing](CONTRIBUTING.md) | How to propose changes |
+| [Changelog](CHANGELOG.md) | What changed in each release |
+| [Security](SECURITY.md) | How to report a vulnerability |
 
-```sh
-gcc gradevault.c -o gradevault.exe -Wall
-gradevault.exe
-```
+---
 
-## Files
+<div align="center">
 
-- `gradevault.c` — the entire program (single file, no dependencies beyond
-  the C standard library).
-- `gradevault.dat` — generated at runtime; the persisted student roster.
-- `gradevault_history.dat` — generated at runtime; last recorded class
-  average, used for the batch-over-batch trend line.
-- Both `.dat` files and any exported report files are gitignored since they
-  are runtime state, not source.
+<h3>Akshat Gupta</h3>
 
-## Notes
+<a href="https://akshatgcodes.in"><img src="https://img.shields.io/badge/Website-akshatgcodes.in-111111?style=flat-square&logo=googlechrome&logoColor=white" alt="Website"></a>
+<a href="https://linkedin.com/in/akshatgcodes"><img src="https://img.shields.io/badge/LinkedIn-akshatgcodes-0A66C2?style=flat-square" alt="LinkedIn"></a>
+<a href="https://github.com/akshatgcodes"><img src="https://img.shields.io/badge/GitHub-akshatgcodes-181717?style=flat-square&logo=github&logoColor=white" alt="GitHub"></a>
+<a href="mailto:akshatgcodes@gmail.com"><img src="https://img.shields.io/badge/Email-akshatgcodes%40gmail.com-EA4335?style=flat-square&logo=gmail&logoColor=white" alt="Email"></a>
 
-Built as a focused, single-purpose tool - a terminal-based student grade management system, nothing more, nothing less.
-
-## Troubleshooting
-
-If something doesn't run as expected, double-check you're using the dependency versions noted above and running the exact commands from the "Run it" section.
-
-## Possible Improvements
-
-- More test coverage
-- Better error messages for edge cases
-- A cleaner CLI/UI polish pass
-
-## Acknowledgements
-
-Thanks to the open-source libraries this project leans on - see the dependency list above for the full set.
-
-## License
-
-GPLv3 - see [LICENSE](LICENSE) for details.
-
-## Testing
-
-Manually tested via the sample commands above; no automated test suite yet.
-
-## Notes
-
-Built as a focused, single-purpose tool - a terminal-based student grade management system, nothing more, nothing less.
-
-## Troubleshooting
-
-If something doesn't run as expected, double-check you're using the dependency versions noted above and running the exact commands from the "Run it" section.
-
-## Possible Improvements
-
-- More test coverage
-- Better error messages for edge cases
-- A cleaner CLI/UI polish pass
-
-## Acknowledgements
-
-Thanks to the open-source libraries this project leans on - see the dependency list above for the full set.
-
-## License
-
-GPLv3 - see [LICENSE](LICENSE) for details.
-
-## Testing
-
-Manually tested via the sample commands above; no automated test suite yet.
+</div>
